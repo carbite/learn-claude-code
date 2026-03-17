@@ -18,6 +18,8 @@ and a dispatch map to route calls.
 Key insight: "The loop didn't change at all. I just added tools."
 """
 
+# insight就是把工具做成了一个map，添加时只用写schema和handler函数，不用在核心循环里写if-else了，解耦更好，添加工具更方便了。
+
 import os
 import subprocess
 from pathlib import Path
@@ -30,20 +32,26 @@ load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
+# 获取当前工作目录（运行脚本的目录，不是文件所在目录）
 WORKDIR = Path.cwd()
+
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
 
-
+# 安全防护函数，防止目录越界
 def safe_path(p: str) -> Path:
+    # WORKDIR / p：利用 pathlib 把基础目录和传入的相对路径 p 拼接在一起。
+    # .resolve()：计算出这个路径的最终真实绝对路径。自动处理./..
     path = (WORKDIR / p).resolve()
+    # 判断path是否为WORKDIR的子目录
     if not path.is_relative_to(WORKDIR):
         raise ValueError(f"Path escapes workspace: {p}")
     return path
 
 
+#  完全没限制安全路径，权限很大
 def run_bash(command: str) -> str:
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in command for d in dangerous):
@@ -56,7 +64,7 @@ def run_bash(command: str) -> str:
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
 
-
+# 更安全、更精准的read,write,edit工具实现
 def run_read(path: str, limit: int = None) -> str:
     try:
         text = safe_path(path).read_text()
@@ -91,6 +99,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 
 
 # -- The dispatch map: {tool_name: handler} --
+# lambda **kw: 将传入的参数变为一个字典 kw，方便调用对应的工具函数；工具函数根据需要从 kw 中提取参数。
 TOOL_HANDLERS = {
     "bash":       lambda **kw: run_bash(kw["command"]),
     "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
@@ -122,7 +131,12 @@ def agent_loop(messages: list):
         results = []
         for block in response.content:
             if block.type == "tool_use":
+                # 取工具名字，找到对应的handler函数，传入参数执行；如果工具名不在TOOL_HANDLERS里，就返回一个错误信息。
                 handler = TOOL_HANDLERS.get(block.name)
+                # **block.input：把大模型返回工具调用的输入参数（字典）展开成关键字参数传给handler函数。
+                # handler(**{"path": "test.txt", "limit": 10})
+                # # 在 Python 底层，它等价于下面这行代码：
+                # handler(path="test.txt", limit=10)
                 output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 print(f"> {block.name}: {output[:200]}")
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
