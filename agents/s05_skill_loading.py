@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+import yaml  # 引入标准 YAML 库
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -50,8 +51,8 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 WORKDIR = Path.cwd()
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
-SKILLS_DIR = WORKDIR / "skills"
-
+# 路径修正
+SKILLS_DIR = (WORKDIR / "../skills").resolve()
 
 # -- SkillLoader: scan skills/<name>/SKILL.md with YAML frontmatter --
 class SkillLoader:
@@ -60,26 +61,47 @@ class SkillLoader:
         self.skills = {}
         self._load_all()
 
+    # 直接加载所有技能文件，提取metadata和body，存到self.skills里，但不放在系统提示里，等需要时才返回body
     def _load_all(self):
         if not self.skills_dir.exists():
             return
+        # rglob递归查找所有SKILL.md文件
         for f in sorted(self.skills_dir.rglob("SKILL.md")):
             text = f.read_text()
             meta, body = self._parse_frontmatter(text)
             name = meta.get("name", f.parent.name)
             self.skills[name] = {"meta": meta, "body": body, "path": str(f)}
 
+    # 从markdown开头提取yaml frontmatter，剩余部分作为技能主体
     def _parse_frontmatter(self, text: str) -> tuple:
-        """Parse YAML frontmatter between --- delimiters."""
+        # 下面这段代码有问题，太简单粗暴，没法取出agent_builder这个skill的desc
+
+        # """Parse YAML frontmatter between --- delimiters."""
+        # match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
+        # if not match:
+        #     return {}, text
+        # meta = {}
+        # for line in match.group(1).strip().splitlines():
+        #     if ":" in line:
+        #         key, val = line.split(":", 1)
+        #         meta[key.strip()] = val.strip()
+        # return meta, match.group(2).strip()
+
+        # 正则只负责把 --- 中间的内容切出来
         match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
         if not match:
             return {}, text
-        meta = {}
-        for line in match.group(1).strip().splitlines():
-            if ":" in line:
-                key, val = line.split(":", 1)
-                meta[key.strip()] = val.strip()
-        return meta, match.group(2).strip()
+        yaml_text = match.group(1).strip()
+        body_text = match.group(2).strip()
+
+        try:
+            # 交给专业的 YAML 解析器来处理
+            meta = yaml.safe_load(yaml_text) or {}
+        except yaml.YAMLError as e:
+            print(f"YAML 解析失败: {e}")
+            meta = {}
+
+        return meta, body_text
 
     def get_descriptions(self) -> str:
         """Layer 1: short descriptions for the system prompt."""
@@ -112,7 +134,7 @@ Use load_skill to access specialized knowledge before tackling unfamiliar topics
 Skills available:
 {SKILL_LOADER.get_descriptions()}"""
 
-
+# print(SYSTEM)
 # -- Tool implementations --
 def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()

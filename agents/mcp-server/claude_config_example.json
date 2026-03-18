@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "my-mcp-server": {
+      "command": "python3",
+      "args": ["/Users/bytedance/PycharmProjects/learn-claude-code-wg/agents/mcp-server/my_mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "/Users/bytedance/PycharmProjects/learn-claude-code-wg/agents/mcp-server"
+      }
+    },
+    "simple-server": {
+      "command": "python3",
+      "args": ["/Users/bytedance/PycharmProjects/learn-claude-code-wg/agents/mcp-server/simple_server.py"]
+    }
+  }
+}
