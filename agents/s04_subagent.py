@@ -112,8 +112,10 @@ CHILD_TOOLS = [
 
 
 # -- Subagent: fresh context, filtered tools, summary-only return --
+# 子agent：上下文独立，工具/轮次受限，返回摘要。
 def run_subagent(prompt: str) -> str:
     sub_messages = [{"role": "user", "content": prompt}]  # fresh context
+    print("  Subagent START prompt:", prompt[:80])
     for _ in range(30):  # safety limit
         response = client.messages.create(
             model=MODEL, system=SUBAGENT_SYSTEM, messages=sub_messages,
@@ -128,9 +130,12 @@ def run_subagent(prompt: str) -> str:
                 handler = TOOL_HANDLERS.get(block.name)
                 output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)[:50000]})
+                print(" Subagent tool:", block.name, str(block.input)[:80], "->", str(output)[:80])
         sub_messages.append({"role": "user", "content": results})
     # Only the final text returns to the parent -- child context is discarded
-    return "".join(b.text for b in response.content if hasattr(b, "text")) or "(no summary)"
+    res = "".join(b.text for b in response.content if hasattr(b, "text")) or "(no summary)"
+    print("  Subagent END res:", res)
+    return res
 
 
 # -- Parent tools: base tools + task dispatcher --
