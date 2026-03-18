@@ -24,6 +24,7 @@ forces it to keep updating when it forgets.
                       inject <reminder>
 
 Key insight: "The agent can track its own progress -- and I can see it."
+agent可以追踪自己的任务进度，过程可视化
 """
 
 import os
@@ -84,7 +85,7 @@ class TodoManager:
         lines.append(f"\n({done}/{len(self.items)} completed)")
         return "\n".join(lines)
 
-
+# 全局实例，整个对话共用
 TODO = TodoManager()
 
 
