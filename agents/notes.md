@@ -141,6 +141,15 @@ TOOLS = [
   - 斩断死循环，防止钻牛角尖，卡在一个todo多次后模型会反思是否应拆分步骤或者换个思路。
   - 破局黑盒效应，人类可观测
 
+5. 踩坑：对于 Anthropic API 来说，它的底层校验有着极其严苛的顺序强迫症：当你回复上一轮的 tool_use（工具调用）时，在组装 user 消息的 content 数组时，所有的 tool_result 块必须放在数组的最前面！任何附加的 text 文本块，必须放在所有工具结果的后面。
+  - 错：
+  ```
+  results.insert(0, {"type": "text", "text": "<reminder>Update your todos.</reminder>"})
+  ```
+  - 对：
+  ```
+  results.append({"type": "text", "text": "<reminder>Update your todos.</reminder>"})
+  ```
 
 
 =====================================================

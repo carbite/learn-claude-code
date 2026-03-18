@@ -171,6 +171,7 @@ def agent_loop(messages: list):
         )
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
+            print(f"> {response.stop_reason}")
             return
         results = []
         used_todo = False
@@ -187,7 +188,11 @@ def agent_loop(messages: list):
                     used_todo = True
         rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
         if rounds_since_todo >= 3:
-            results.insert(0, {"type": "text", "text": "<reminder>Update your todos.</reminder>"})
+            # 这一行代码有坑：
+            # 对于 Anthropic API 来说，它的底层校验有着极其严苛的顺序强迫症：
+            # 当你回复上一轮的 tool_use（工具调用）时，在组装 user 消息的 content 数组时，所有的 tool_result 块必须放在数组的最前面！任何附加的 text 文本块，必须放在所有工具结果的后面。
+            # results.insert(0, {"type": "text", "text": "<reminder>Update your todos.</reminder>"})
+            results.append({"type": "text", "text": "<reminder>Update your todos.</reminder>"})
         messages.append({"role": "user", "content": results})
 
 
