@@ -43,16 +43,25 @@ SYSTEM = f"You are a coding agent at {WORKDIR}. Use task tools to plan and track
 
 
 # -- TaskManager: CRUD with dependency graph, persisted as JSON files --
+# 汇总一下可优化项：
+# 1. 双边依赖关系维护，不完整；
+# 2. 既然维护了DAG，缺少循环依赖检测，只有add_block方法；
+# 3. 存在上下文过载问题，任务数量过大时，list_all会占用大量token。可动态view
+
 class TaskManager:
     def __init__(self, tasks_dir: Path):
         self.dir = tasks_dir
         self.dir.mkdir(exist_ok=True)
+        # 下一个新任务的id，保证重启时是自增的
         self._next_id = self._max_id() + 1
 
+    # 含义：返回当前最大的任务id
+    # 找到dir目录下，形如task_*.json的文件，提取其中的id，返回最大的id值
     def _max_id(self) -> int:
         ids = [int(f.stem.split("_")[1]) for f in self.dir.glob("task_*.json")]
         return max(ids) if ids else 0
 
+    # 读写json文件，持久化
     def _load(self, task_id: int) -> dict:
         path = self.dir / f"task_{task_id}.json"
         if not path.exists():
@@ -63,7 +72,11 @@ class TaskManager:
         path = self.dir / f"task_{task['id']}.json"
         path.write_text(json.dumps(task, indent=2))
 
+    # 给模型调用的读写工具
+    # 每次只新建一个任务，防止直接生成复杂的dag出错。
     def create(self, subject: str, description: str = "") -> str:
+        # 预留owner字段 for multi-agent
+        # blocks感觉像是个冗余字段
         task = {
             "id": self._next_id, "subject": subject, "description": description,
             "status": "pending", "blockedBy": [], "blocks": [], "owner": "",
@@ -75,9 +88,12 @@ class TaskManager:
     def get(self, task_id: int) -> str:
         return json.dumps(self._load(task_id), indent=2)
 
+    # 更新任务状态和依赖关系。添加依赖时，自动维护双向关系。
     def update(self, task_id: int, status: str = None,
                add_blocked_by: list = None, add_blocks: list = None) -> str:
         task = self._load(task_id)
+
+        # 修改任务状态：当任务完成时，清理其他任务对其的依赖。
         if status:
             if status not in ("pending", "in_progress", "completed"):
                 raise ValueError(f"Invalid status: {status}")
@@ -85,8 +101,11 @@ class TaskManager:
             # When a task is completed, remove it from all other tasks' blockedBy
             if status == "completed":
                 self._clear_dependency(task_id)
+
+        # 新增依赖关系：单边，可能存在问题；比如说B依赖A，但是A的blocks里没有B。
         if add_blocked_by:
             task["blockedBy"] = list(set(task["blockedBy"] + add_blocked_by))
+        # 新增被依赖（阻塞）关系，双边。说A阻塞B，同时在B的依赖里增加A
         if add_blocks:
             task["blocks"] = list(set(task["blocks"] + add_blocks))
             # Bidirectional: also update the blocked tasks' blockedBy lists
@@ -101,6 +120,7 @@ class TaskManager:
         self._save(task)
         return json.dumps(task, indent=2)
 
+    # 任务完成后，自动清理其他任务对其的依赖关系
     def _clear_dependency(self, completed_id: int):
         """Remove completed_id from all other tasks' blockedBy lists."""
         for f in self.dir.glob("task_*.json"):
@@ -109,6 +129,8 @@ class TaskManager:
                 task["blockedBy"].remove(completed_id)
                 self._save(task)
 
+    # 渲染任务列表，显示状态和依赖关系
+    # 动态视图更合理，节约上下文空间。已完成任务、完全被阻塞的任务，都不用展示。
     def list_all(self) -> str:
         tasks = []
         for f in sorted(self.dir.glob("task_*.json")):
@@ -195,6 +217,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in file.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+
     {"name": "task_create", "description": "Create a new task.",
      "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "description": {"type": "string"}}, "required": ["subject"]}},
     {"name": "task_update", "description": "Update a task's status or dependencies.",
