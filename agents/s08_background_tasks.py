@@ -49,6 +49,7 @@ SYSTEM = f"You are a coding agent at {WORKDIR}. Use background_run for long-runn
 class BackgroundManager:
     def __init__(self):
         self.tasks = {}  # task_id -> {status, result, command}
+        # 通知队列
         self._notification_queue = []  # completed task results
         self._lock = threading.Lock()
 
@@ -64,6 +65,7 @@ class BackgroundManager:
 
     def _execute(self, task_id: str, command: str):
         """Thread target: run subprocess, capture output, push to queue."""
+        # 1. 执行
         try:
             r = subprocess.run(
                 command, shell=True, cwd=WORKDIR,
@@ -77,8 +79,11 @@ class BackgroundManager:
         except Exception as e:
             output = f"Error: {e}"
             status = "error"
+        # 2. 更新任务状态
         self.tasks[task_id]["status"] = status
         self.tasks[task_id]["result"] = output or "(no output)"
+
+        # 3. 更新通知队列的结果信息
         with self._lock:
             self._notification_queue.append({
                 "task_id": task_id,
@@ -87,6 +92,7 @@ class BackgroundManager:
                 "result": (output or "(no output)")[:500],
             })
 
+    # 给大模型主动调用，传taskid，就返回完整的task数据结构；没传taskid，就返回所有任务的id，命令和状态。
     def check(self, task_id: str = None) -> str:
         """Check status of one task or list all."""
         if task_id:
@@ -99,6 +105,7 @@ class BackgroundManager:
             lines.append(f"{tid}: [{t['status']}] {t['command'][:60]}")
         return "\n".join(lines) if lines else "No background tasks."
 
+    # 加锁，打开信箱，取走信件，清空信箱，返回信件
     def drain_notifications(self) -> list:
         """Return and clear all pending completion notifications."""
         with self._lock:
@@ -177,6 +184,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in file.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+
     {"name": "background_run", "description": "Run command in background thread. Returns task_id immediately.",
      "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
     {"name": "check_background", "description": "Check background task status. Omit task_id to list all.",

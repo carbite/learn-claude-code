@@ -282,6 +282,7 @@ tags: code, github, review
 
 
 2. insight: **存入磁盘持久化，避免丢失，为多agent协作打基础；任务之间补充依赖关系，更加符合真实情况。**
+  - task manager，支持create,get,update,list_all
   - 存储结构：每一个任务存储一个JSON文件。多个任务可以拼成一个DAG。
   - 任务定义：
   ```
@@ -314,12 +315,26 @@ tags: code, github, review
 
 
 
+=====================================================
 
 
+# 后台任务
 
+1. 背景：有些命令要跑好几分钟: npm install、pytest、docker build。阻塞式循环下模型只能干等。用户说 "装依赖, 顺便建个配置文件", 智能体却只能一个一个来。
 
+2. insight:**"慢操作丢后台, agent 继续想下一步" -- 后台线程跑命令, 完成后注入通知。**
+  - BackgroundManager：支持run()跑异步任务；check()检查任务执行状态；drain_notifications()任务跑完之后中断通知队列。
+  - tasks:全局状态表；`_notification_queue`消息信箱；`_lock`锁，防止同时读写消息信箱。
+  - run方法极速返回，任务异步执行（`_execute`）：执行、更新任务状态、更新通知队列。
 
-
+3. 实现异步任务的关键：
+  - 任务异步执行，直接返回；
+  - 通知方式1:给模型检查任务的工具。
+  - 通知方式2:任务执行完成时，加入消息队列，主agent每一轮loop消费信件，如果已经完成，则构造messages.
+  ```
+    messages.append({"role": "user", "content": f"<background-results>\n{notif_text}\n</background-results>"})
+    messages.append({"role": "assistant", "content": "Noted background results."})
+  ```
 
 
 
